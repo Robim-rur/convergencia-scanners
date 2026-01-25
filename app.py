@@ -1,68 +1,84 @@
 import streamlit as st
+import pandas as pd
 
-# =====================================================
-# CONFIGURAÇÃO DA PÁGINA
-# =====================================================
-st.set_page_config(
-    page_title="Validador de Convergência",
-    layout="centered"
-)
-
-def extrair_ativos(texto):
+def processar_compras(listas_dict):
     """
-    Limpa o texto colado (remove espaços, vírgulas, quebras de linha)
-    e retorna um conjunto de ativos únicos.
+    Analisa as listas focando em convergência de compra e volume.
     """
-    if not texto:
-        return set()
+    # Filtra apenas listas que possuem conteúdo
+    listas_ativas = {k: set(v) for k, v in listas_dict.items() if v}
     
-    # Substitui vírgulas e quebras de linha por espaços
-    limpo = texto.replace(",", " ").replace("\n", " ")
-    # Divide e limpa cada item
-    lista = [ativo.strip().upper() for ativo in limpo.split(" ") if ativo.strip()]
-    return set(lista)
+    if len(listas_ativas) < 2:
+        return None, None, len(listas_ativas)
 
-def executar():
-    st.title("🎯 Validador de Convergência")
-    st.write("Identifique quais ativos estão presentes em dois scanners ao mesmo tempo.")
+    sets = list(listas_ativas.values())
+    nomes = list(listas_ativas.keys())
 
-    # Área de entrada
-    col1, col2 = st.columns(2)
+    # 1. Interseção Total (O que comprar de todos os fornecedores/listas)
+    intersecao_total = set.intersection(*sets)
 
-    with col1:
-        st.subheader("Lista Scanner 1")
-        txt_1 = st.text_area("Cole os ativos do Setup A:", height=200, placeholder="Ex: PETR4, VALE3, ITUB4")
+    # 2. Análise de Frequência (Para identificar volume de compra)
+    todos_itens = set().union(*sets)
+    contagem = []
+    for item in todos_itens:
+        frequencia = sum(1 for s in sets if item in s)
+        if frequencia >= 2:
+            # Identifica em quais listas o item aparece
+            onde_aparece = [nome for nome, conteudo in listas_ativas.items() if item in conteudo]
+            contagem.append({
+                "Item": item, 
+                "Frequência": frequencia,
+                "Origens": ", ".join(onde_aparece)
+            })
+    
+    df_frequencia = pd.DataFrame(contagem).sort_values(by="Frequência", ascending=False)
+    
+    return intersecao_total, df_frequencia, len(listas_ativas)
 
-    with col2:
-        st.subheader("Lista Scanner 2")
-        txt_2 = st.text_area("Cole os ativos do Setup B:", height=200, placeholder="Ex: PETR4, ABEV3, VALE3")
+# --- INTERFACE ---
+st.set_page_config(page_title="Comparador Buy Side 6x", layout="wide")
 
-    st.divider()
+st.title("🛒 Comparador de Suprimentos (Até 6 Listas)")
+st.subheader("Focado em identificação de volume e convergência")
 
-    # Botão de processamento
-    if st.button("🔥 Comparar Listas", use_container_width=True):
-        set_1 = extrair_ativos(txt_1)
-        set_2 = extrair_ativos(txt_2)
+# Organização das entradas em 2 linhas e 3 colunas
+col_config = [st.columns(3), st.columns(3)]
+listas_input = {}
 
-        # Intersecção: o que existe em ambos
-        comuns = sorted(list(set_1.intersection(set_2)))
+contador = 1
+for linha in col_config:
+    for col in linha:
+        with col:
+            nome_lista = st.text_input(f"Identificador da Lista {contador}", f"Fornecedor/Lista {contador}")
+            conteudo = st.text_area(f"Itens (um por linha)", height=150, key=f"area_{contador}")
+            # Limpeza dos dados
+            listas_input[nome_lista] = [line.strip().upper() for line in conteudo.split('\n') if line.strip()]
+            contador += 1
 
-        if comuns:
-            st.success(f"✅ Encontrado(s) **{len(comuns)}** ativo(s) em comum!")
-            
-            # Exibe os ativos em 'cards' visuais
-            cols = st.columns(5)
-            for idx, ativo in enumerate(comuns):
-                cols[idx % 5].info(f"**{ativo}**")
-            
-            st.write("---")
-            st.subheader("📋 Lista para Copiar:")
-            st.code(", ".join(comuns))
-        else:
-            if not txt_1 or not txt_2:
-                st.info("Aguardando a colagem das duas listas para comparar...")
+st.divider()
+
+if st.button("📊 ANALISAR LISTAS DE COMPRA"):
+    comuns, df_freq, total_ativas = processar_compras(listas_input)
+    
+    if total_ativas < 2:
+        st.error("⚠️ Insira pelo menos 2 listas para realizar a comparação.")
+    else:
+        tab1, tab2 = st.tabs(["🎯 Itens em Comum (Todas)", "📈 Análise de Volume (2 ou +)"])
+        
+        with tab1:
+            if comuns:
+                st.success(f"Encontrados {len(comuns)} itens presentes em TODAS as {total_ativas} listas.")
+                st.write(list(comuns))
             else:
-                st.warning("⚠️ Nenhum ativo em comum foi encontrado entre as duas listas.")
-
-if __name__ == "__main__":
-    executar()
+                st.info("Não há itens comuns a todas as listas simultaneamente.")
+                
+        with tab2:
+            if not df_freq.empty:
+                st.write("Itens recorrentes encontrados em múltiplas origens:")
+                st.dataframe(df_freq, use_container_width=True, hide_index=True)
+                
+                # Botão de exportação focado em relatório de compra
+                csv = df_freq.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Baixar Relatório de Oportunidade de Volume", csv, "compras_recorrentes.csv", "text/csv")
+            else:
+                st.warning("Nenhum item se repete entre as listas analisadas.")
