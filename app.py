@@ -9,7 +9,7 @@ def processar_compras(listas_dict):
     listas_ativas = {k: set(v) for k, v in listas_dict.items() if v}
     
     if len(listas_ativas) < 2:
-        return None, None, len(listas_ativas)
+        return None, pd.DataFrame(columns=["Item", "Frequência", "Origens"]), len(listas_ativas)
 
     sets = list(listas_ativas.values())
     nomes = list(listas_ativas.keys())
@@ -20,6 +20,7 @@ def processar_compras(listas_dict):
     # 2. Análise de Frequência (Para identificar volume de compra)
     todos_itens = set().union(*sets)
     contagem = []
+
     for item in todos_itens:
         frequencia = sum(1 for s in sets if item in s)
         if frequencia >= 2:
@@ -30,10 +31,21 @@ def processar_compras(listas_dict):
                 "Frequência": frequencia,
                 "Origens": ", ".join(onde_aparece)
             })
-    
-    df_frequencia = pd.DataFrame(contagem).sort_values(by="Frequência", ascending=False)
-    
+
+    # Garante estrutura mesmo quando não houver resultados
+    df_frequencia = pd.DataFrame(
+        contagem,
+        columns=["Item", "Frequência", "Origens"]
+    )
+
+    if not df_frequencia.empty:
+        df_frequencia = df_frequencia.sort_values(
+            by="Frequência",
+            ascending=False
+        )
+
     return intersecao_total, df_frequencia, len(listas_ativas)
+
 
 # --- INTERFACE ---
 st.set_page_config(page_title="Comparador Buy Side 6x", layout="wide")
@@ -49,10 +61,23 @@ contador = 1
 for linha in col_config:
     for col in linha:
         with col:
-            nome_lista = st.text_input(f"Identificador da Lista {contador}", f"Fornecedor/Lista {contador}")
-            conteudo = st.text_area(f"Itens (um por linha)", height=150, key=f"area_{contador}")
+            nome_lista = st.text_input(
+                f"Identificador da Lista {contador}",
+                f"Fornecedor/Lista {contador}"
+            )
+            conteudo = st.text_area(
+                f"Itens (um por linha)",
+                height=150,
+                key=f"area_{contador}"
+            )
+
             # Limpeza dos dados
-            listas_input[nome_lista] = [line.strip().upper() for line in conteudo.split('\n') if line.strip()]
+            listas_input[nome_lista] = [
+                line.strip().upper()
+                for line in conteudo.split('\n')
+                if line.strip()
+            ]
+
             contador += 1
 
 st.divider()
@@ -67,18 +92,34 @@ if st.button("📊 ANALISAR LISTAS DE COMPRA"):
         
         with tab1:
             if comuns:
-                st.success(f"Encontrados {len(comuns)} itens presentes em TODAS as {total_ativas} listas.")
+                st.success(
+                    f"Encontrados {len(comuns)} itens presentes em TODAS as {total_ativas} listas."
+                )
                 st.write(list(comuns))
             else:
-                st.info("Não há itens comuns a todas as listas simultaneamente.")
+                st.info(
+                    "Não há itens comuns a todas as listas simultaneamente."
+                )
                 
         with tab2:
             if not df_freq.empty:
                 st.write("Itens recorrentes encontrados em múltiplas origens:")
-                st.dataframe(df_freq, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    df_freq,
+                    use_container_width=True,
+                    hide_index=True
+                )
                 
                 # Botão de exportação focado em relatório de compra
                 csv = df_freq.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Baixar Relatório de Oportunidade de Volume", csv, "compras_recorrentes.csv", "text/csv")
+                st.download_button(
+                    "📥 Baixar Relatório de Oportunidade de Volume",
+                    csv,
+                    "compras_recorrentes.csv",
+                    "text/csv"
+                )
             else:
-                st.warning("Nenhum item se repete entre as listas analisadas.")
+                st.warning(
+                    "Nenhum item se repete entre as listas analisadas."
+                )
+
